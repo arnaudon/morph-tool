@@ -15,7 +15,25 @@ import xmltodict
 
 L = logging.getLogger(__name__)
 
+NEURONDB_XML = "neuronDB.xml"
+NEURONDB_DAT = "neurondb.dat"
 MTYPE_MSUBTYPE_SEPARATOR = ':'
+EXTS = {".asc", ".ASC", ".h5", ".H5", ".swc", ".SWC"}
+
+
+def find_morph(folder: Path, stem: str, ext: str) -> Optional[Path]:
+    """Returns the path to a morphology in morphology_dir matching stem.
+
+    If no morphology is found, returns None. Provide ext for speed up
+    """
+    if ext:
+        return folder / (stem + ext)
+
+    for ext in EXTS:
+        path = folder / (stem + ext)
+        if path.exists():
+            return path
+    return None
 
 
 class MorphInfo:
@@ -37,8 +55,11 @@ class MorphInfo:
         'use_for_stats',
     ]
 
-    COLUMNS = ['name', 'mtype', 'msubtype', 'fullmtype',
-               'layer'] + BOOLEAN_REPAIR_ATTRS + ['axon_inputs']
+    COLUMNS = (
+        ["name", "mtype", "msubtype", "fullmtype", "layer", "label", "path"]
+        + BOOLEAN_REPAIR_ATTRS
+        + ["axon_inputs"]
+    )
 
     def __init__(self, item: Dict[str, Any]):
         '''MorphInfo ctor.
@@ -52,6 +73,8 @@ class MorphInfo:
         self.layer = str(item['layer'])
         self.msubtype = item.get('msubtype') or ''
         self.fullmtype = MTYPE_MSUBTYPE_SEPARATOR.join(filter(None, [self.mtype, self.msubtype]))
+        self.layer = str(item.get("layer", None))
+        self.msubtype = item.get("msubtype") or ""
 
         def is_true(el: Optional[str]) -> bool:
             '''Parse a string representing a boolean repair flag and returns its boolean value
@@ -101,6 +124,7 @@ class MorphInfo:
         return f'MorphInfo(name={self.name}, mtype={self.mtype}, layer={self.layer})'
 
 
+class MorphAPI(object):
 class MorphologyDB(object):
     '''A MorphInfo container.
 
@@ -108,113 +132,165 @@ class MorphologyDB(object):
     and methods to write neurondb to various format (xml, dat, csv)
     '''
 
-    def __init__(self,
-                 neurondb: Path = None,
-                 morph_info_filter: Callable[[MorphInfo], bool] = None):
-        '''Builds a MorphologyDB from a neurondb.xml file
+    def __init__(self, root_path=None):
+        """Builds a MorphologyDB from a morphology folder"""
+        self.df = pd.DataFrame()
+        if root_path:
+            self.add_from_path(root_path)
+
+    def _add_from_single_folder(self, path):
+        """Load morphologies from a single folder with neurondb.xml."""
+
+    def _add_from_folders(self, root_path):
+        """Load several folders as a release with various neurondb.xml."""
+        for folder in root_path.iterdir():
+            if folder.is_dir():
+                self.add_neurondb(folder / NEURONDB_XML)
+
+    def add_from_path(self, root_path):
+        """Load a morphology release."""
+        root_path = Path(root_path).resolve()
+        if (root_path / NEURONDB_XML).exists():
+            self.add_neurondb(root_path / NEURONDB_XML)
+        elif any((folder / NEURONDB_XML).exists() for folder in root_path.iterdir()):
+            for folder in root_path.iterdir():
+                if (folder / NEURONDB_XML).exists():
+                    self.add_neurondb(folder / NEURONDB_XML)
+        else:
+            raise Exception(f"We cannot load morphologies from path {root_path}")
+
+    def add_neurondb(
+        self,
+        neurondb: Path = None,
+        label: str = None,
+        ext=None,
+        morphology_folder: Optional[Path] = None,
+        morph_info_filter: Callable[[MorphInfo], bool] = None,
+    ):
+        """Builds a MorphologyDB from a path (several options available)
+
+        Args:
+            neurondb: path to a neurondb.xml/neurondb.dat or morphology folder
+            label: a unique label to mark all morphologies coming from this neurondb
+            morphology_folder: the location of the morphology files, if None it will default
+                to the neurondb folder
+            morph_info_filter: a filter function to be applied to each MorphInfo element
+        """
+        neurondb = Path(neurondb)
+        loader_type = None
+        if neurondb.is_dir():
+            if (neurondb / NEURONDB_XML).exists():
+                neurondb = neurondb / NEURONDB_XML
+                loader_type = "xml"
+            elif (neurondb / NEURONDB_DAT).exists():
+                neurondb = neurondb / NEURONDB_DAT
+                loader_type = "dat"
+            else:
+                # TODO: simple loading from a folder is some morphs exist
+                raise Exception(f"We cannot load neurondb at {neurondb}")
+        elif neurondb.suffix == ".xml":
+            loader_type = "xml"
+        elif neurondb.suffix == ".dat":
+            loader_type = "dat"
+        else:
+            raise Exception(f"We cannot load neurondb at {neurondb}")
+
+        if not morphology_folder:
+            morphology_folder = neurondb.parent.resolve()
+
+        if not label:
+            label = morphology_folder.stem
+
+        if not ext:
+            # this is used to bypass the check of file existence later, which is slow
+            last_split = "." + morphology_folder.stem.split("-")[-1]
+            if last_split in EXTS:
+                ext = last_split
+
+        if loader_type == "xml":
+            self._add_from_xml(
+                neurondb, label, ext, morphology_folder, morph_info_filter
+            )
+        if loader_type == "dat":
+            self._add_from_dat(
+                neurondb, label, ext, morphology_folder, morph_info_filter
+            )
+
+    def _add_from_dat(
+        self,
+        neurondb: Path = None,
+        label: str = None,
+        ext=None,
+        morphology_folder: Optional[Path] = None,
+        morph_info_filter: Callable[[MorphInfo], bool] = None,
+    ):
+        """Builds a MorphologyDB from a neurondb.dat file
+
+        TO IMPLEMENT
+        """
+        pass
+
+    def _add_from_xml(
+        self,
+        neurondb: Path = None,
+        label: str = None,
+        ext=None,
+        morphology_folder: Optional[Path] = None,
+        morph_info_filter: Callable[[MorphInfo], bool] = None,
+    ):
+        """Builds a MorphologyDB from a neurondb.xml file
 
         Args:
             neurondb: path to a neurondb.xml file
+            label: a unique label to mark all morphologies coming from this neurondb
+            morphology_folder: the location of the morphology files, if None it will default
+                to the neurondb folder
             morph_info_filter: a filter function to be applied to each MorphInfo element
-        '''
-        self.lineage = {}
+        """
+        with open(neurondb) as fd:
+            content = fd.read()
+            neurondb = xmltodict.parse(content)
 
-        if neurondb is not None:
-            with open(neurondb) as fd:
-                neurondb = xmltodict.parse(fd.read())
+        morphologies = neurondb["neurondb"]["listing"]["morphology"]
+        for morph in morphologies:
+            morph["label"] = label
 
-            morphologies = neurondb['neurondb']['listing']['morphology']
+        # Case where there is a single <morphology></morphology> tag in the XML
+        if not isinstance(morphologies, list):
+            morphologies = [morphologies]
+        morphologies = filter(None, morphologies)
+        morphologies = map(MorphInfo, morphologies)
 
-            # Case where there is a single <morphology></morphology> tag in the XML
-            if not isinstance(morphologies, list):
-                morphologies = [morphologies]
-            morphologies = filter(None, morphologies)
-            morphologies = map(MorphInfo, morphologies)
-            if morph_info_filter is not None:
-                morphologies = filter(morph_info_filter, morphologies)
-        else:
-            morphologies = []
+        if morph_info_filter is not None:
+            morphologies = filter(morph_info_filter, morphologies)
 
-        self.morphologies = list(morphologies)
-        self._known_morphologies = set(map(self._morph_key, self.morphologies))
+        morphologies = list(morphologies)
+        for morph in morphologies:
+            morph.path = find_morph(morphology_folder, morph.name, ext)
 
-    def __iter__(self):
-        return iter(self.morphologies)
+        dataframe = pd.DataFrame(
+            [morph.row for morph in morphologies], columns=MorphInfo.COLUMNS
+        )
+        self.df = pd.concat([self.df, dataframe])
 
-    @staticmethod
-    def _morph_key(morph: MorphInfo) -> Tuple[str, str, str]:
-        '''Returns the key that is used to uniquely identify a morphology.'''
-        return (morph.name, morph.fullmtype, morph.layer)
+    @property
+    def labels(self):
+        """Return list of labels."""
+        return self.df.label.unique()
 
-    def remove_morphs(self, removed_morphs: Iterable[MorphInfo]) -> None:
-        '''Removes morphologies from the database.'''
-        removed_morphs = set(removed_morphs)
-        self.morphologies = [morph for morph in self.morphologies
-                             if morph.name not in removed_morphs]
-
-        self._known_morphologies = set(map(self._morph_key, self.morphologies))
-
-        for name in removed_morphs:
-            self.lineage.pop(name, None)
+    def by_label(self, label):
+        """Return df with specific label."""
+        return self.df.groupby("label").get_group(label)
 
     def add_morph(self, morph_info: MorphInfo) -> bool:
-        '''Add a morphology to the database.
+        """Add a morphology to the database."""
+        self.df = self.df.append(morph_info.data).drop_duplicates.reset_index(drop=True)
 
-        If the name, mtype, layer combination already exists, then nothing is added
-
-        Return:
-            True if morphology added, False otherwise
-        '''
-        key = self._morph_key(morph_info)
-        if key in self._known_morphologies:
-            return False
-        self._known_morphologies.add(key)
-        self.morphologies.append(morph_info)
-
-        lineage = {'dendrite': morph_info.dendrite_donor, 'axon': morph_info.axon_donor}
-        lineage = {k: v for k, v in lineage.items() if v is not None}
-        if lineage:
-            self.lineage[morph_info.name] = lineage
-        return True
-
-    @property
-    def df(self):
-        '''Returns a pandas.DataFrame view of the data with the following columns:
-
-           'name': the morpho name (without extension)
-           'mtype': the mtype (without msubtype),
-           'msubtype': the msubtype (the part of the fullmtype after the ":")
-           'fullmtype': the full mtype (mtype:msubtype)
-           'layer': the layer (as a string)
-
-           # repair related columns
-           'use_axon': states that the morphology's axon can be used as a donor for axon grafting
-           'use_dendrites': states that this morphology can be used as a recipient for axon grafting
-           'axon_repair': flag to activate axon repair
-           'dendrite_repair': flag to activate dendrites repair
-           'basal_dendrite_repair': flag to activate basal dendrites repair (dendrite_repair
-                                    must be true as well)
-           'tuft_dendrite_repair': flag to activate tuft dendrites repair (dendrite_repair
-                                    must be true as well)
-           'oblique_dendrite_repair': flag to activate oblique dendrites repair (dendrite_repair
-                                    must be true as well)
-           'unravel': flag to activate unravelling
-           'axon_inputs': the list of morphologies whose axon can be grafted on this morphology
-
-           # deprecated
-           'use_for_stats': Legacy flag that was used to determine if an axon was suitable to be
-                            used as a axoninput
-
-        '''
-        return pd.DataFrame([morph.row for morph in self.morphologies],
-                            columns=MorphInfo.COLUMNS)
-
-    @property
-    def data(self):
-        '''The neurondb relevant data'''
-        return {'neurondb':
-                {'overview': {'count': len(self.morphologies)},
-                 'listing': {'morphology': [morph.data for morph in self.morphologies]}}}
+    def add_morphs(self, morph_infos: list) -> bool:
+        """Add a morphology to the database."""
+        self.df = self.df.append(
+            [morph_info.data for morph_info in morph_infos]
+        ).drop_duplicates.reset_index(drop=True)
 
     def write(self,
               output_path: Path,
@@ -222,36 +298,15 @@ class MorphologyDB(object):
         '''Write the neurondb file to XML, DAT or CSV format'''
         output_path = Path(output_path)
         ext = output_path.suffix.lower()[1:]
-        if ext == 'csv':
-            self._write_neurondb(output_path, sep=',', write_header=True, filt=filt)
-        elif ext == 'dat':
-            self._write_neurondb(output_path, sep=' ', write_header=False, filt=filt)
-        elif ext == 'xml':
-            with output_path.open('w') as fd:
+        if ext == "csv":
+            self.df.to_csv(output_path, index=False)
+        elif ext == "dat":
+            self.df.to_csv(output_path, index=False, header=None, sep="\t")
+        elif ext == "xml":
+            with output_path.open("w") as fd:
                 fd.write(xmltodict.unparse(self.data, pretty=True))
         else:
             raise ValueError(f'Unsupported neurondb extensions ({ext}).'
                              ' Should be one of: (xml,csv,dat)')
         return output_path
 
-    def _write_neurondb(self, output_path: Path, sep=' ', write_header=False,
-                        filt: Dict[str, bool] = None):
-        '''private helper to write the neurondb file'''
-        if filt is None:
-            filt = {}
-        with open(output_path, 'w') as fd:
-            if write_header:
-                fd.write(sep.join(['name', 'layer', 'mtype']) + "\n")
-            for morph in self:
-                if ('use_axon' in filt) and (morph.use_axon != filt['use_axon']):
-                    continue
-                if ('use_dendrites' in filt) and (morph.use_dendrites != filt['use_dendrites']):
-                    continue
-                fd.write(sep.join([morph.name, morph.layer, morph.mtype]) + "\n")
-
-    def write_lineage(self, output_path: Path, name='lineage.json'):
-        '''write the lineage to the output_path/name'''
-        full_path = Path(output_path, name)
-        with open(full_path, 'w') as fd:
-            json.dump(self.lineage, fd, indent=2)
-        return full_path
