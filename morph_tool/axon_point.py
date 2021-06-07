@@ -1,7 +1,6 @@
 """Module to detect the terminal point of the main axon/"""
 import logging
 import numpy as np
-from enum import Enum
 
 from neurom import COLS
 from neurom import NeuriteType, iter_sections
@@ -10,28 +9,30 @@ from morphio import SectionType, IterType
 L = logging.getLogger(__name__)
 
 
-class SubAxonalType(Enum):
-    """The subtypes for apical dendrites."""
-
-    main = 0
-    collateral = 1
-
-
 def axonal_subtype(neuron, axonal_section=None, direction=None, bbox=None, ignore_axis=2):
     """Return a dict of extended axonal subtypes (main, collaterals)."""
 
     extended_types = dict()
-    for section in iter_sections(neuron):
-        if section.type == SectionType.axon:
-            extended_types[section.id] = SubAxonalType.collateral
-
     if axonal_section is None:
         axonal_section = neuron.sections[
             axon_point_section(neuron, direction=direction, ignore_axis=ignore_axis)
         ]
+        for section in iter_sections(neuron):
+            if section.type == SectionType.axon:
+                extended_types[section.id] = "collateral"
 
-    for section in axonal_section.iupstream():
-        extended_types[section.id] = SubAxonalType.main
+        for section in axonal_section.iupstream():
+            extended_types[section.id] = "main"
+    else:
+
+        for section in iter_sections(neuron):
+            if section.type == SectionType.axon:
+                extended_types[section.id] = "axon"
+            if section.type == SectionType.basal_dendrite:
+                extended_types[section.id] = "basal"
+            if section.type == SectionType.apical_dendrite:
+                extended_types[section.id] = "apical"
+
     return extended_types
 
 
@@ -57,8 +58,8 @@ def plot_axonal_subtypes(ax, nrn, subtype_map,
         alpha = view._ALPHA
 
     _plot_map = {
-        SubAxonalType.main: SectionType.custom5,
-        SubAxonalType.collateral: SectionType.custom6,
+        "main": SectionType.custom5,
+        "collateral": SectionType.custom6,
     }
     view.TREE_COLOR.update({
         NeuriteType.custom5: 'blue',

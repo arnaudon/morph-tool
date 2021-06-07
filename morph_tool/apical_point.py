@@ -1,7 +1,6 @@
 """Module to retrieve the position of the apical point"""
 import logging
 import numpy as np
-from enum import Enum
 
 from neurom import COLS
 from neurom import NeuriteType, iter_sections
@@ -15,31 +14,34 @@ L = logging.getLogger(__name__)
 X, Y, Z = 0, 1, 2
 
 
-class SubApicalType(Enum):
-    """The subtypes for apical dendrites."""
-
-    trunk = 0
-    tuft = 1
-    oblique = 2
-
-
 def apical_subtype(neuron, apical_section=None, tuft_percent=20):
     """Return a dict of extended apical subtypes (trunk, oblique, tuft)."""
     extended_types = dict()
-    for section in iter_sections(neuron):
-        if section.type == SectionType.apical_dendrite:
-            extended_types[section.id] = SubApicalType.oblique
 
     apical_section = neuron.sections[
         apical_point_section_segment(neuron, tuft_percent=tuft_percent)[0]
     ]
     if apical_section is not None:
-        for section in apical_section.ipreorder():
-            extended_types[section.id] = SubApicalType.tuft
+        for section in iter_sections(neuron):
+            if section.type == SectionType.apical_dendrite:
+                extended_types[section.id] = "oblique"
 
-        # The value for the apical section must be overriden to 'trunk'
+        for section in apical_section.ipreorder():
+            extended_types[section.id] = "tuft"
+
         for section in apical_section.iupstream():
-            extended_types[section.id] = SubApicalType.trunk
+            extended_types[section.id] = "trunk"
+    else:
+        for section in iter_sections(neuron):
+            if section.type == SectionType.apical_dendrite:
+                extended_types[section.id] = "apical"
+
+    for section in iter_sections(neuron):
+        if section.type == SectionType.basal_dendrite:
+            extended_types[section.id] = "basal"
+        if section.type == SectionType.axon:
+            extended_types[section.id] = "axon"
+
     return extended_types
 
 
@@ -65,9 +67,9 @@ def plot_apical_subtypes(ax, nrn, subtype_map,
         alpha = view._ALPHA
 
     _plot_map = {
-        SubApicalType.trunk: SectionType.custom5,
-        SubApicalType.tuft: SectionType.custom6,
-        SubApicalType.oblique: SectionType.custom7,
+        "trunk": SectionType.custom5,
+        "tuft": SectionType.custom6,
+        "oblique": SectionType.custom7,
     }
     view.TREE_COLOR.update({
         NeuriteType.custom5: 'purple',
