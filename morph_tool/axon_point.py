@@ -36,7 +36,7 @@ def axonal_subtype(neuron, axonal_section=None, direction=None, bbox=None, ignor
     return extended_types
 
 
-def plot_axonal_subtypes(ax, nrn, subtype_map,
+def plot_axonal_subtypes(ax, nrn, subtype_map=None,
                          neurite_type=NeuriteType.all,
                          plane='xy',
                          soma_outline=True,
@@ -45,7 +45,8 @@ def plot_axonal_subtypes(ax, nrn, subtype_map,
     """Same as neurom.view.plot_neuron, but plots subtypes of apicals.
 
     Args:
-        subtype_map (dict): result of apical_subtypes
+        subtype_map (dict): result of axonal_subtypes, if None, default axonal_subtype is called
+        see neurom.view.plot_neuron for all other parameters
     """
 
     from neurom.view import view
@@ -56,6 +57,8 @@ def plot_axonal_subtypes(ax, nrn, subtype_map,
         linewidth = view._LINEWIDTH
     if alpha is None:
         alpha = view._ALPHA
+    if subtype_map is None:
+        subtype_map = axonal_subtype(nrn)
 
     _plot_map = {
         "main": SectionType.custom5,
